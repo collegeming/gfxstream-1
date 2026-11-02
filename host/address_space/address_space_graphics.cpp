@@ -586,6 +586,16 @@ AddressSpaceGraphicsContext::AddressSpaceGraphicsContext(
         mBufferAllocation = sGlobals()->allocBuffer();
     }
 
+    {
+        const char* asgName = (mVirtioGpuInfo && !mVirtioGpuInfo->name.empty())
+                                  ? mVirtioGpuInfo->name.c_str()
+                                  : "-";
+        GFXSTREAM_INFO("ASG-DIAG-CREATE name=%s ring=%p ring-size=%llu virtio=%d", asgName,
+                       static_cast<void*>(mRingAllocation.buffer),
+                       static_cast<unsigned long long>(mRingAllocation.size),
+                       mVirtioGpuInfo ? 1 : 0);
+    }
+
     if (!mRingAllocation.buffer) {
         GFXSTREAM_FATAL(
             "Failed to allocate ring for ASG context");
@@ -678,8 +688,19 @@ void AddressSpaceGraphicsContext::perform(AddressSpaceDevicePingInfo* info) {
         const bool sent = mConsumerMessages.trySend(ConsumerCommand::Wakeup);
         static std::atomic<uint64_t> lastNotifyDiagNs{0};
         if (asgDiagRateLimit(&lastNotifyDiagNs, 500000000ull)) {
-            GFXSTREAM_INFO("ASG-DIAG-NOTIFY ctx=%p sent=%d", static_cast<void*>(this),
-                           sent ? 1 : 0);
+            uint32_t diagWrite = 0;
+            uint32_t diagRead = 0;
+            if (mRingAllocation.buffer != nullptr) {
+                auto* diagRing = reinterpret_cast<struct ring_buffer*>(mRingAllocation.buffer);
+                diagWrite = __atomic_load_n(&diagRing->write_pos, __ATOMIC_ACQUIRE);
+                diagRead = __atomic_load_n(&diagRing->read_pos, __ATOMIC_ACQUIRE);
+            }
+            const char* asgName = (mVirtioGpuInfo && !mVirtioGpuInfo->name.empty())
+                                      ? mVirtioGpuInfo->name.c_str()
+                                      : "-";
+            GFXSTREAM_INFO("ASG-DIAG-NOTIFY ctx=%p name=%s sent=%d write=%u read=%u",
+                           static_cast<void*>(this), asgName, sent ? 1 : 0, diagWrite,
+                           diagRead);
         }
         info->metadata = 0;
         break;
@@ -703,10 +724,22 @@ AsgOnUnavailableReadStatus AddressSpaceGraphicsContext::onUnavailableRead() {
     if (parkedNs > 200000000ull) {
         static std::atomic<uint64_t> lastParkDiagNs{0};
         if (asgDiagRateLimit(&lastParkDiagNs, 500000000ull)) {
-            GFXSTREAM_INFO("ASG-DIAG-PARK ctx=%p parked=%llums cmd=%d avail-at-park=%u",
-                           static_cast<void*>(this),
-                           static_cast<unsigned long long>(parkedNs / 1000000ull),
-                           static_cast<int>(cmd), availAtPark);
+            uint32_t diagWrite = 0;
+            uint32_t diagRead = 0;
+            if (mRingAllocation.buffer != nullptr) {
+                auto* diagRing = reinterpret_cast<struct ring_buffer*>(mRingAllocation.buffer);
+                diagWrite = __atomic_load_n(&diagRing->write_pos, __ATOMIC_ACQUIRE);
+                diagRead = __atomic_load_n(&diagRing->read_pos, __ATOMIC_ACQUIRE);
+            }
+            const char* asgName = (mVirtioGpuInfo && !mVirtioGpuInfo->name.empty())
+                                      ? mVirtioGpuInfo->name.c_str()
+                                      : "-";
+            GFXSTREAM_INFO(
+                "ASG-DIAG-PARK ctx=%p name=%s parked=%llums cmd=%d avail-at-park=%u "
+                "write=%u read=%u",
+                static_cast<void*>(this), asgName,
+                static_cast<unsigned long long>(parkedNs / 1000000ull), static_cast<int>(cmd),
+                availAtPark, diagWrite, diagRead);
         }
     }
     switch (cmd) {
