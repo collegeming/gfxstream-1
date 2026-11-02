@@ -128,6 +128,10 @@ int VirtioGpuContext::CreateAddressSpaceGraphicsInstance(
     };
     asgOps.create_instance(createInfo);
 
+    GFXSTREAM_INFO("ASG-DIAG-RESOURCE ctx=%u name=%s resource=%u asg=%u hva=%p size=%llu",
+                   mId, asgName.c_str(), resourceId, asgId, resourceHva,
+                   static_cast<unsigned long long>(resourceHvaSize));
+
     mAddressSpaceHandles[resourceId] = asgId;
     return 0;
 }

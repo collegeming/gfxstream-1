@@ -299,8 +299,13 @@ int VirtioGpuFrontend::processAddressSpaceCommand(VirtioGpuCtxId ctxId, const ui
                 return -EINVAL;
             }
 
-            return context.PingAddressSpaceGraphicsInstance(get_gfxstream_address_space_ops(),
-                                                            contextPing.resourceId);
+            const int asgPingRet = context.PingAddressSpaceGraphicsInstance(
+                get_gfxstream_address_space_ops(), contextPing.resourceId);
+            if (gfxstream::base::getEnvironmentVariable("GFXSTREAM_NIRI_IMAGE_TRACE") == "1") {
+                GFXSTREAM_INFO("ASG-DIAG-PING ctx=%u resource=%u ret=%d", (unsigned)ctxId,
+                               contextPing.resourceId, asgPingRet);
+            }
+            return asgPingRet;
         }
         default:
             break;
