@@ -599,6 +599,24 @@ const unsigned char* RingStream::readRaw(void* buf, size_t* inout_len) {
                     // RENDERING -- so a stale CAN_CONSUME here tells the guest the host is busy
                     // and needs no doorbell, while the host waits for exactly that doorbell.
                     *(mContext.host_state) = ASG_HOST_STATE_NEED_NOTIFY;
+
+                    // Arm the state word before the ring is looked at again. The guest does the
+                    // mirror image of this: it queues a transfer and only then reads host_state
+                    // to decide whether it must ring. Store-then-load on both sides cannot miss
+                    // in both directions, so a transfer that landed after the check at the top of
+                    // this iteration is still found here. The reverse order -- check, then store
+                    // -- is the window that wedged the desktop: the guest read CAN_CONSUME and
+                    // skipped its ping, the host parked on top of the queued transfer, and the
+                    // guest then waited in its outstanding-transfer limit, which pings nothing.
+                    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+                    if (ring_buffer_available_read(mContext.to_host, 0) ||
+                        ring_buffer_available_read(mContext.to_host_large_xfer.ring,
+                                                   &mContext.to_host_large_xfer.view)) {
+                        *(mContext.host_state) = ASG_HOST_STATE_CAN_CONSUME;
+                        sleeping = false;
+                        break;
+                    }
+
                     const AsgOnUnavailableReadStatus status = mCallbacks.onUnavailableRead();
                     switch (status) {
                         case AsgOnUnavailableReadStatus::kContinue: {
