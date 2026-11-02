@@ -85,6 +85,14 @@ class VirtioGpuResource {
 
     int GetCaching(uint32_t* outHvaCaching) const;
 
+    // The ASG ring and its write buffer are a CPU-to-CPU channel: the guest writes them and
+    // this process reads them. Advertise a cacheable mapping for that blob so both CPUs work
+    // through the same cache lines. The default for a host-coherent allocation is WC, which
+    // leaves this process reading stale lines until the guest's write happens to reach DRAM;
+    // the guest then believes the ring is empty, the consumer parks, and the guest spins in
+    // its transfer-limit wait.
+    void MarkAsgRing() { mAsgRing = true; }
+
     void SetHostPipe(std::shared_ptr<VirtioGpuPipe> pipe) { mHostPipe = pipe; }
 
     // Corresponds to Virtio GPU "TransferFromHost" commands and VMM requests to
@@ -174,6 +182,7 @@ class VirtioGpuResource {
 
     using BlobMemory = std::variant<RingBlobMemory, ExternalMemoryInfo, ExternalMemoryMapping>;
     std::optional<BlobMemory> mBlobMemory;
+    bool mAsgRing = false;
     // LINT.ThenChange(VirtioGpuResourceSnapshot.proto:virtio_gpu_resource)
 };
 

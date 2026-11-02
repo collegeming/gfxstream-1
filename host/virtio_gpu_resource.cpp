@@ -818,6 +818,13 @@ int VirtioGpuResource::GetCaching(uint32_t* outCaching) const {
         return -EINVAL;
     }
 
+    if (mAsgRing) {
+        GFXSTREAM_INFO(
+            "resource %d is an ASG ring: advertising a cacheable mapping to the guest", mId);
+        *outCaching = STREAM_RENDERER_MAP_CACHE_CACHED;
+        return 0;
+    }
+
     if (std::holds_alternative<ExternalMemoryMapping>(*mBlobMemory)) {
         auto& memory = std::get<ExternalMemoryMapping>(*mBlobMemory);
         *outCaching = memory.caching;

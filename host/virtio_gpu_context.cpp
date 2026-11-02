@@ -101,6 +101,10 @@ int VirtioGpuContext::CreateAddressSpaceGraphicsInstance(
     const address_space_device_control_ops& asgOps, VirtioGpuResource& resource) {
     const VirtioGpuResourceId resourceId = resource.GetId();
 
+    // The guest maps this blob after this command -- it asks the host for the map info at
+    // mmap time -- so marking it now is in time for the guest to map it cacheable.
+    resource.MarkAsgRing();
+
     void* resourceHva = nullptr;
     uint64_t resourceHvaSize = 0;
     if (resource.Map(&resourceHva, &resourceHvaSize) != 0) {
