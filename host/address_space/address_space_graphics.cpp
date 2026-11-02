@@ -20,6 +20,7 @@
 #include "gfxstream/AlignedBuf.h"
 #include "gfxstream/host/address_space_device.h"
 #include <atomic>
+#include <chrono>
 #include <stdlib.h>
 
 #include "gfxstream/common/logging.h"
@@ -27,6 +28,26 @@
 #include "render-utils/address_space_operations.h"
 
 namespace gfxstream {
+
+namespace {
+
+uint64_t asgDiagNowNs() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                     std::chrono::steady_clock::now().time_since_epoch())
+                                     .count());
+}
+
+// Rate-limited so a stream of pings cannot flood logcat: one line per half second per site.
+bool asgDiagRateLimit(std::atomic<uint64_t>* last, uint64_t intervalNs) {
+    const uint64_t now = asgDiagNowNs();
+    uint64_t prev = last->load(std::memory_order_relaxed);
+    if (now - prev < intervalNs) {
+        return false;
+    }
+    return last->compare_exchange_strong(prev, now, std::memory_order_relaxed);
+}
+
+}  // namespace
 
 // Wakeups delivered to consumers, process-wide. Read by the stall probe in the ring stream, which
 // is where the question "who woke this thread, and was there anything for it" gets asked.
@@ -648,15 +669,21 @@ void AddressSpaceGraphicsContext::perform(AddressSpaceDevicePingInfo* info) {
         }
         break;
     }
-    case ASG_NOTIFY_AVAILABLE:
+    case ASG_NOTIFY_AVAILABLE: {
         // Every wakeup the consumer gets comes from here, so counting them is the only way to
         // tell a consumer that woke because there was work from one that woke because it was
         // told there was. A stall that spans several of these with the write position unmoved is
         // the guest pinging a ring it has not written to.
         asgNotifyCount().fetch_add(1, std::memory_order_relaxed);
-        mConsumerMessages.trySend(ConsumerCommand::Wakeup);
+        const bool sent = mConsumerMessages.trySend(ConsumerCommand::Wakeup);
+        static std::atomic<uint64_t> lastNotifyDiagNs{0};
+        if (asgDiagRateLimit(&lastNotifyDiagNs, 500000000ull)) {
+            GFXSTREAM_INFO("ASG-DIAG-NOTIFY ctx=%p sent=%d", static_cast<void*>(this),
+                           sent ? 1 : 0);
+        }
         info->metadata = 0;
         break;
+    }
     case ASG_GET_CONFIG:
         info->metadata = 0;
         break;
@@ -664,8 +691,24 @@ void AddressSpaceGraphicsContext::perform(AddressSpaceDevicePingInfo* info) {
 }
 
 AsgOnUnavailableReadStatus AddressSpaceGraphicsContext::onUnavailableRead() {
+    uint32_t availAtPark = 0;
+    if (mRingAllocation.buffer != nullptr) {
+        availAtPark = ring_buffer_available_read(
+            reinterpret_cast<struct ring_buffer*>(mRingAllocation.buffer), nullptr);
+    }
+    const uint64_t parkStart = asgDiagNowNs();
     ConsumerCommand cmd;
     mConsumerMessages.receive(&cmd);
+    const uint64_t parkedNs = asgDiagNowNs() - parkStart;
+    if (parkedNs > 200000000ull) {
+        static std::atomic<uint64_t> lastParkDiagNs{0};
+        if (asgDiagRateLimit(&lastParkDiagNs, 500000000ull)) {
+            GFXSTREAM_INFO("ASG-DIAG-PARK ctx=%p parked=%llums cmd=%d avail-at-park=%u",
+                           static_cast<void*>(this),
+                           static_cast<unsigned long long>(parkedNs / 1000000ull),
+                           static_cast<int>(cmd), availAtPark);
+        }
+    }
     switch (cmd) {
         case ConsumerCommand::Wakeup:
             return AsgOnUnavailableReadStatus::kContinue;
