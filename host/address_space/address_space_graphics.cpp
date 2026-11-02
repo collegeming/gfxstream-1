@@ -21,6 +21,7 @@
 #include "gfxstream/host/address_space_device.h"
 #include <atomic>
 #include <chrono>
+#include <string>
 #include <stdlib.h>
 
 #include "gfxstream/common/logging.h"
@@ -587,9 +588,9 @@ AddressSpaceGraphicsContext::AddressSpaceGraphicsContext(
     }
 
     {
-        const char* asgName = (mVirtioGpuInfo && !mVirtioGpuInfo->name.empty())
-                                  ? mVirtioGpuInfo->name.c_str()
-                                  : "-";
+        const std::string asgNameStr =
+            (mVirtioGpuInfo && mVirtioGpuInfo->name) ? *mVirtioGpuInfo->name : std::string("-");
+        const char* asgName = asgNameStr.c_str();
         GFXSTREAM_INFO("ASG-DIAG-CREATE name=%s ring=%p ring-size=%llu virtio=%d", asgName,
                        static_cast<void*>(mRingAllocation.buffer),
                        static_cast<unsigned long long>(mRingAllocation.size),
@@ -695,9 +696,10 @@ void AddressSpaceGraphicsContext::perform(AddressSpaceDevicePingInfo* info) {
                 diagWrite = __atomic_load_n(&diagRing->write_pos, __ATOMIC_ACQUIRE);
                 diagRead = __atomic_load_n(&diagRing->read_pos, __ATOMIC_ACQUIRE);
             }
-            const char* asgName = (mVirtioGpuInfo && !mVirtioGpuInfo->name.empty())
-                                      ? mVirtioGpuInfo->name.c_str()
-                                      : "-";
+            const std::string asgNameStr = (mVirtioGpuInfo && mVirtioGpuInfo->name)
+                                               ? *mVirtioGpuInfo->name
+                                               : std::string("-");
+            const char* asgName = asgNameStr.c_str();
             GFXSTREAM_INFO("ASG-DIAG-NOTIFY ctx=%p name=%s sent=%d write=%u read=%u",
                            static_cast<void*>(this), asgName, sent ? 1 : 0, diagWrite,
                            diagRead);
@@ -731,9 +733,10 @@ AsgOnUnavailableReadStatus AddressSpaceGraphicsContext::onUnavailableRead() {
                 diagWrite = __atomic_load_n(&diagRing->write_pos, __ATOMIC_ACQUIRE);
                 diagRead = __atomic_load_n(&diagRing->read_pos, __ATOMIC_ACQUIRE);
             }
-            const char* asgName = (mVirtioGpuInfo && !mVirtioGpuInfo->name.empty())
-                                      ? mVirtioGpuInfo->name.c_str()
-                                      : "-";
+            const std::string asgNameStr = (mVirtioGpuInfo && mVirtioGpuInfo->name)
+                                               ? *mVirtioGpuInfo->name
+                                               : std::string("-");
+            const char* asgName = asgNameStr.c_str();
             GFXSTREAM_INFO(
                 "ASG-DIAG-PARK ctx=%p name=%s parked=%llums cmd=%d avail-at-park=%u "
                 "write=%u read=%u",
